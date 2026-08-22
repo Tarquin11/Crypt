@@ -1,0 +1,1 @@
+﻿Console.WriteLine("Fuck israel , fuck zionism, fuck the occupation, and fuck apartheid. We stand in solidarity, with the Palestinian people and their struggle for freedom, justice, and equality. #FreePalestine #EndTheOccupation #SolidarityWithPalestine");
