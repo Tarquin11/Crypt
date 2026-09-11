@@ -1,0 +1,5 @@
+<ItemGroup>
+    <ProjectReference Include="../../Crypt.Core/Crypt.Core.csproj" />
+  </ItemGroup>
+</Project>
+</Project>
