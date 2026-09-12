@@ -74,7 +74,10 @@ public sealed class CryptGame : Game
         _spriteBatch.Begin(
             SpriteSortMode.Deferred,
             BlendState.AlphaBlend,
-            SamplerState.PointClamp,
+            // The world is drawn from crisp integer-aligned primitives. Text, however,
+            // comes from an anti-aliased font atlas and needs linear sampling to remain
+            // readable at the UI's fractional display scales.
+            SamplerState.LinearClamp,
             DepthStencilState.None,
             RasterizerState.CullNone);
         _renderer.Draw(_session, gameTime.TotalGameTime);

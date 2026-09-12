@@ -184,7 +184,20 @@ public sealed class DungeonSession
             return;
         }
 
+        var cipherWasActive = Room.IsCipherActive;
         var worldMessage = Room.Enter(Player, _now);
+        var cipherMessage = cipherWasActive ? Room.FollowCipherMove(Player.MoveStart, Player) : null;
+        if (cipherMessage is not null)
+        {
+            Message = cipherMessage;
+
+            if (!Room.IsCipherActive && Room.IsKeyRevealed)
+            {
+                ShowDialogue("RUNES", cipherMessage);
+                return;
+            }
+        }
+
         if (worldMessage is not null)
         {
             Message = worldMessage;

@@ -87,7 +87,7 @@ public sealed class GameRenderer
         }
 
         DrawPlayer(session.Player, now);
-        DrawHeader(session.Player);
+        DrawHeader(session.Player, session.Room);
 
         switch (session.State)
         {
@@ -398,13 +398,22 @@ public sealed class GameRenderer
         }
     }
 
-    private void DrawHeader(Player player)
+    private void DrawHeader(Player player, Room room)
     {
         DrawText("CRYPT", new Vector2(GameConstants.BoardLeft, 20), new Color(0xFF, 0x70, 0x43), 1.7f);
         DrawText("LEVEL 1  -  The floor remembers every step", new Vector2(GameConstants.BoardLeft, 61), new Color(0xAE, 0xBD, 0xCA), 0.82f);
         FillRectangle(GameConstants.BoardLeft, 92, 932, 2, new Color(0x25, 0x31, 0x3E));
         DrawText("HP", new Vector2(730, 29), new Color(0xAE, 0xBD, 0xCA), 0.84f);
         DrawHearts(765, 30, player);
+
+        if (room.IsCipherActive && room.CipherPuzzle is not null)
+        {
+            DrawText(
+                $"RUNE LOCK {room.CipherProgress}/{room.CipherPuzzle.Route.Count}",
+                new Vector2(522, 61),
+                new Color(0xFF, 0xD1, 0x66),
+                0.76f);
+        }
     }
 
     private void DrawHearts(int x, int y, Player player)
@@ -524,8 +533,32 @@ public sealed class GameRenderer
 
     private float MeasureText(string value, float scale) => _font.MeasureString(value).X * scale;
 
-    private void DrawText(string value, Vector2 position, Color color, float scale) =>
-        _spriteBatch.DrawString(_font, value, position, color, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+    private void DrawText(string value, Vector2 position, Color color, float scale)
+    {
+        var snappedPosition = new Vector2(MathF.Round(position.X), MathF.Round(position.Y));
+        var shadow = new Color(0, 0, 0, color.A / 2);
+
+        _spriteBatch.DrawString(
+            _font,
+            value,
+            snappedPosition + new Vector2(2f, 2f),
+            shadow,
+            0f,
+            Vector2.Zero,
+            scale,
+            SpriteEffects.None,
+            0f);
+        _spriteBatch.DrawString(
+            _font,
+            value,
+            snappedPosition,
+            color,
+            0f,
+            Vector2.Zero,
+            scale,
+            SpriteEffects.None,
+            0f);
+    }
 
     private void FillRectangle(int x, int y, int width, int height, Color color) =>
         _spriteBatch.Draw(_pixel, new Rectangle(x, y, width, height), color);
