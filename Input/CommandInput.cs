@@ -9,12 +9,13 @@ public sealed class CommandInput
     private KeyboardState _previous;
     private KeyboardState _current;
 
-    public bool QuitRequested => WasPressed(Keys.Escape);
+    public bool QuitRequested { get; private set; }
 
     public IReadOnlyList<GameCommand> Read(GameState state)
     {
         _current = Keyboard.GetState();
         var commands = new List<GameCommand>();
+        QuitRequested = WasPressed(Keys.Escape);
 
         if (WasPressed(Keys.R))
         {

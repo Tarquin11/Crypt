@@ -25,7 +25,7 @@ This project targets .NET 10 and MonoGame DesktopGL. The DesktopGL target runs o
 ```bash
 dotnet tool restore
 dotnet run --project Crypt.csproj
-dotnet test Crypt.sln
+dotnet test Crypt.Core/tests/Crypt.Core.Tests/Crypt.Core.Tests.csproj
 ```
 
 The code is intentionally split into three projects:
