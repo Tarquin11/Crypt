@@ -9,4 +9,8 @@ public enum GameCommand
     Attack,
     Confirm,
     Restart,
+    NextLevel,
+    CipherBackspace,
+    CipherSubmit,
+    CipherHint,
 }

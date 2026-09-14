@@ -22,13 +22,36 @@ public sealed class Room
         GridPosition entrance,
         GridPosition door,
         GridPosition hiddenKey,
-        GridPosition pressurePlate,
-        CaesarRunePuzzle? cipherPuzzle = null)
+        GridPosition? pressurePlate,
+        ITextCipherPuzzle? cipherPuzzle = null,
+        bool lavaEnabled = true,
+        bool allowsExplorationKeyReveal = true,
+        SpecialMovePattern? specialMovePattern = null,
+        GridPosition? specialMoveStart = null,
+        GridPosition? specialMovePaper = null,
+        bool triggersSequenceCheatTrap = false,
+        AnswerSigilPuzzle? answerSigilPuzzle = null,
+        GridPosition? libraryBook = null)
     {
         Entrance = entrance;
         Door = door;
         HiddenKey = hiddenKey;
         CipherPuzzle = cipherPuzzle;
+        LavaEnabled = lavaEnabled;
+        AllowsExplorationKeyReveal = allowsExplorationKeyReveal;
+        SpecialMovePattern = specialMovePattern;
+        SpecialMoveStart = specialMoveStart;
+        SpecialMovePaper = specialMovePaper;
+        HasSpecialMovePaper = specialMovePaper.HasValue;
+        TriggersSequenceCheatTrap = triggersSequenceCheatTrap;
+        AnswerSigilPuzzle = answerSigilPuzzle;
+        LibraryBook = libraryBook;
+        HasLibraryBook = libraryBook.HasValue;
+
+        if (SpecialMovePattern is not null && (!SpecialMoveStart.HasValue || !SpecialMovePaper.HasValue))
+        {
+            throw new ArgumentException("A special-move puzzle needs both a start tile and a paper tile.");
+        }
 
         for (var row = 0; row < GameConstants.RoomRows; row++)
         {
@@ -38,7 +61,18 @@ public sealed class Room
             }
         }
 
-        TileAt(pressurePlate).IsPressurePlate = true;
+        if (pressurePlate is { } tablet)
+        {
+            TileAt(tablet).IsPressurePlate = true;
+        }
+
+        if (!LavaEnabled)
+        {
+            foreach (var position in Positions())
+            {
+                TileAt(position).Crack(TimeSpan.Zero);
+            }
+        }
     }
 
     public GridPosition Entrance { get; }
@@ -51,11 +85,35 @@ public sealed class Room
 
     public bool IsKeyRevealed { get; private set; }
 
-    public CaesarRunePuzzle? CipherPuzzle { get; }
+    public ITextCipherPuzzle? CipherPuzzle { get; }
+
+    public bool LavaEnabled { get; }
+
+    public bool AllowsExplorationKeyReveal { get; }
+
+    public SpecialMovePattern? SpecialMovePattern { get; }
+
+    public GridPosition? SpecialMoveStart { get; }
+
+    public GridPosition? SpecialMovePaper { get; }
+
+    public bool HasSpecialMovePaper { get; private set; }
+
+    public bool IsSpecialMovePaperCollected => SpecialMovePaper.HasValue && !HasSpecialMovePaper;
+
+    /// <summary>One-in-four completed level-two sequences trigger a playful anti-screenshot trap.</summary>
+    public bool TriggersSequenceCheatTrap { get; }
+
+    public AnswerSigilPuzzle? AnswerSigilPuzzle { get; }
+
+    /// <summary>A one-time book that reveals the keyword for the library cipher.</summary>
+    public GridPosition? LibraryBook { get; }
+
+    public bool HasLibraryBook { get; private set; }
+
+    public bool IsLibraryBookCollected => LibraryBook.HasValue && !HasLibraryBook;
 
     public bool IsCipherActive { get; private set; }
-
-    public int CipherProgress { get; private set; }
 
     public string? Enter(Player player, TimeSpan now)
     {
@@ -63,7 +121,17 @@ public sealed class Room
         var tile = TileAt(position);
         string? gameEvent = null;
 
-        if (!IsKeyRevealed && CipherPuzzle is null && position == HiddenKey)
+        if (HasLibraryBook && position == LibraryBook)
+        {
+            HasLibraryBook = false;
+            gameEvent = "You found a keyword book.";
+        }
+        else if (HasSpecialMovePaper && position == SpecialMovePaper)
+        {
+            HasSpecialMovePaper = false;
+            gameEvent = "You found a folded paper.";
+        }
+        else if (!IsKeyRevealed && AllowsExplorationKeyReveal && CipherPuzzle is null && position == HiddenKey)
         {
             gameEvent = RevealKey(player, fromPressurePlate: false);
         }
@@ -71,7 +139,9 @@ public sealed class Room
         {
             gameEvent = CipherPuzzle is null
                 ? RevealKey(player, fromPressurePlate: true)
-                : ActivateCipher();
+                : CanActivateCipher()
+                    ? ActivateCipher()
+                    : "The rune lectern is sealed. Find its keyword book.";
         }
 
         if (IsKeyRevealed && RevealedKey is { } revealedKey && position == revealedKey)
@@ -85,33 +155,46 @@ public sealed class Room
         return gameEvent;
     }
 
-    /// <summary>Records a completed move after the rune tablet has been activated.</summary>
-    public string? FollowCipherMove(GridPosition from, Player player)
+    public string SolveCipher(Player player)
     {
-        if (CipherPuzzle is null || !IsCipherActive || IsKeyRevealed)
+        if (CipherPuzzle is null || !IsCipherActive)
         {
-            return null;
-        }
-
-        var direction = DirectionFrom(from, player.Position);
-        if (direction is null || direction != CipherPuzzle.Route[CipherProgress])
-        {
-            CipherProgress = 0;
-            return "The rune sequence fades. Begin the decoded route again.";
-        }
-
-        CipherProgress++;
-        if (CipherProgress < CipherPuzzle.Route.Count)
-        {
-            return $"A rune answers ({CipherProgress}/{CipherPuzzle.Route.Count}).";
+            throw new InvalidOperationException("There is no active cipher to solve.");
         }
 
         IsCipherActive = false;
-        return RevealKey(player, fromPressurePlate: true) ?? "The final rune answers, but nothing moves.";
+        return RevealKey(player, fromPressurePlate: true) ?? "The runes answer, but the key has nowhere to appear.";
+    }
+
+    public void RejectCipher() => IsCipherActive = false;
+
+    public string RevealKeyFromSpecialMove(Player player)
+    {
+        if (IsKeyRevealed)
+        {
+            return "The hidden key is already revealed.";
+        }
+
+        return RevealKey(player, fromPressurePlate: false) ?? "The floor shifts, but no key appears.";
+    }
+
+    public string RevealKeyFromMinefield(Player player)
+    {
+        if (IsKeyRevealed)
+        {
+            return "The minefield has already revealed the key.";
+        }
+
+        return RevealKey(player, fromPressurePlate: false) ?? "The minefield unlocks, but no key appears.";
     }
 
     public string? Update(Player player, TimeSpan now)
     {
+        if (!LavaEnabled)
+        {
+            return null;
+        }
+
         var forcedReveal = ForceRevealIfNeeded(player);
         ConvertExpiredCracks(player, now);
         SpreadLava(player, now);
@@ -178,7 +261,9 @@ public sealed class Room
 
     private void Crack(GridPosition position, TimeSpan now)
     {
-        if (position != Entrance && position != Door)
+        // The rune tablet is a permanent landmark. Letting it crack during the
+        // dialogue made it turn to lava as soon as the player started the route.
+        if (LavaEnabled && position != Entrance && position != Door && !IsCipherTablet(position))
         {
             TileAt(position).Crack(now);
         }
@@ -226,7 +311,7 @@ public sealed class Room
 
     private string? ForceRevealIfNeeded(Player player)
     {
-        if (CipherPuzzle is not null || IsKeyRevealed || player.HasKey || CountSafeTiles() > GameConstants.ForceRevealSafeTiles)
+        if (!AllowsExplorationKeyReveal || CipherPuzzle is not null || IsKeyRevealed || player.HasKey || CountSafeTiles() > GameConstants.ForceRevealSafeTiles)
         {
             return null;
         }
@@ -252,6 +337,11 @@ public sealed class Room
 
         IsKeyRevealed = true;
         RevealedKey = location;
+        if (fromPressurePlate && LibraryBook.HasValue)
+        {
+            return "The lectern opens a hidden compartment. A key appears in the library.";
+        }
+
         return fromPressurePlate
             ? "The pressure plate reveals a key in the dungeon."
             : "A hidden mechanism reveals a key across the room!";
@@ -269,6 +359,19 @@ public sealed class Room
             return RevealedKey;
         }
 
+        // The player already knows the next direction from the decoded clue.
+        // During that short sequence, reachability to the tablet is irrelevant
+        // and can be false after the player deliberately walks away from it.
+        if (IsCipherActive)
+        {
+            return player.Position;
+        }
+
+        if (!AllowsExplorationKeyReveal)
+        {
+            return player.Position;
+        }
+
         return CipherPuzzle is null ? HiddenKey : FindPressurePlate();
     }
 
@@ -280,21 +383,16 @@ public sealed class Room
         }
 
         IsCipherActive = true;
-        CipherProgress = 0;
-        return $"RUNES: {CipherPuzzle!.EncodedRoute}\n{CipherPuzzle.Hint}";
+        return "A cipher panel unfolds from the rune tablet.";
     }
+
+    private bool CanActivateCipher() => !LibraryBook.HasValue || !HasLibraryBook;
 
     private GridPosition FindPressurePlate() =>
         Positions().Single(position => TileAt(position).IsPressurePlate);
 
-    private static Facing? DirectionFrom(GridPosition from, GridPosition to) => (to.Row - from.Row, to.Column - from.Column) switch
-    {
-        (-1, 0) => Facing.Up,
-        (1, 0) => Facing.Down,
-        (0, -1) => Facing.Left,
-        (0, 1) => Facing.Right,
-        _ => null,
-    };
+    private bool IsCipherTablet(GridPosition position) =>
+        CipherPuzzle is not null && TileAt(position).IsPressurePlate;
 
     private GridPosition? FindKeyLocation(Player player, bool chooseFarthest)
     {
@@ -304,7 +402,12 @@ public sealed class Room
 
         foreach (var candidate in KeyCandidates())
         {
-            if (candidate == player.Position || candidate == Entrance || candidate == Door || TileAt(candidate).Type == TileType.Lava)
+            if (candidate == player.Position ||
+                candidate == Entrance ||
+                candidate == Door ||
+                candidate == LibraryBook ||
+                (CipherPuzzle is not null && TileAt(candidate).IsPressurePlate) ||
+                TileAt(candidate).Type == TileType.Lava)
             {
                 continue;
             }

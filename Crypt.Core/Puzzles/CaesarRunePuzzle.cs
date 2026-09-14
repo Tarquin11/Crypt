@@ -1,42 +1,74 @@
-using Crypt.Core.Entities;
+using System.Globalization;
+using System.Text;
 
 namespace Crypt.Core.Puzzles;
 
 /// <summary>
-/// A small, inspectable Caesar-cipher puzzle. The player decodes a sequence of
-/// cardinal directions, then walks that sequence after activating its rune tablet.
+/// caesar cipher puzzle that uses a rune-like font to display the encoded text. The player must decode the text by reversing the letter shift.
 /// </summary>
-public sealed class CaesarRunePuzzle
+public sealed class CaesarRunePuzzle : ITextCipherPuzzle
 {
-    public const int Shift = 3;
+    private static readonly string[] PhraseBank =
+    [
+        "HASTA EL FINAL VAMOS REAL",
+        "HALA MADRID",
+        "THE GOAT WALKS AMONG US",
+        "RONALDO NEVER MISSES",
+        "SIUUUUUUU",
+        "THE SNOW SPEAKS FINNISH",
+        "THE DUNGEON HAS NO WIFI",
+        "THE TREES SPEAK VIETNAMESE",
+        "THERE IS NO SPOON",
+        "PRESS F TO PAY RESPECTS",
+        "THE CAKE IS A LIE",
+        "YOUR LIFE DOSENT HAVE A PAUSE BUTTON",
+        "THE PRINCESS IS IN ANOTHER CASTLE",
+        "YOU SHOULD HAVE BROUGHT A MAP",
+        "THIS WAS A BAD IDEA"
+    ];
 
-    private readonly Facing[] _route;
-
-    public CaesarRunePuzzle(IEnumerable<Facing> route)
+    public CaesarRunePuzzle(string decodedText, int shift)
     {
-        ArgumentNullException.ThrowIfNull(route);
-        _route = route.ToArray();
+        ArgumentException.ThrowIfNullOrWhiteSpace(decodedText);
 
-        if (_route.Length == 0)
+        if (shift is < 1 or > 50)
         {
-            throw new ArgumentException("A rune puzzle needs at least one direction.", nameof(route));
+            throw new ArgumentOutOfRangeException(nameof(shift), "A Caesar shift must be from 1 through 50.");
         }
+
+        DecodedText = NormalizePlainText(decodedText);
+        Shift = shift;
     }
 
-    public IReadOnlyList<Facing> Route => _route;
+    public string DecodedText { get; }
 
-    public string EncodedRoute => Encode(string.Join(" · ", _route.Select(DirectionName)));
+    public int Shift { get; }
 
-    public string Hint => $"TURN EACH RUNE BACK {Shift}.";
+    public string EncodedText => Encode(DecodedText, Shift);
 
-    public static string Encode(string value, int shift = Shift)
+    /// <summary>The clue shown to the player: encrypted text followed by its rotation count.</summary>
+    public string DisplayedRuneText => $"{EncodedText}  {Shift}";
+
+    public string Hint => "A ROTATION MOVES EVERY LETTER. REVERSE IT.";
+
+    public string PanelTitle => "RUNE CIPHER";
+
+    public string HintFooter => "THE NUMBER AFTER THE RUNES IS IMPORTANT.";
+
+    public static CaesarRunePuzzle CreateRandom(Random random)
+    {
+        ArgumentNullException.ThrowIfNull(random);
+        return new CaesarRunePuzzle(PhraseBank[random.Next(PhraseBank.Length)], random.Next(1, 51));
+    }
+
+    public static string Encode(string value, int shift)
     {
         ArgumentNullException.ThrowIfNull(value);
 
         return string.Concat(value.Select(character => ShiftLetter(character, shift)));
     }
 
-    public static string Decode(string value, int shift = Shift) => Encode(value, -shift);
+    public static string Decode(string value, int shift) => Encode(value, -shift);
 
     private static char ShiftLetter(char character, int shift)
     {
@@ -50,12 +82,33 @@ public sealed class CaesarRunePuzzle
         return (char)(firstLetter + offset);
     }
 
-    private static string DirectionName(Facing direction) => direction switch
+    private static string NormalizePlainText(string value)
     {
-        Facing.Up => "NORTH",
-        Facing.Down => "SOUTH",
-        Facing.Left => "WEST",
-        Facing.Right => "EAST",
-        _ => throw new ArgumentOutOfRangeException(nameof(direction), direction, null),
-    };
+        var normalized = new StringBuilder();
+
+        foreach (var character in value.Normalize(NormalizationForm.FormD))
+        {
+            if (char.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            if (char.IsAsciiLetter(character))
+            {
+                normalized.Append(char.ToUpperInvariant(character));
+            }
+            else if (char.IsWhiteSpace(character) && normalized.Length > 0 && normalized[^1] != ' ')
+            {
+                normalized.Append(' ');
+            }
+        }
+
+        var result = normalized.ToString().Trim();
+        if (result.Length == 0)
+        {
+            throw new ArgumentException("A cipher phrase needs at least one Latin letter.", nameof(value));
+        }
+
+        return result;
+    }
 }

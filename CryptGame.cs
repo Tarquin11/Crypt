@@ -28,7 +28,7 @@ public sealed class CryptGame : Game
         };
 
         Content.RootDirectory = "Content";
-        IsMouseVisible = false;
+        IsMouseVisible = true;
         IsFixedTimeStep = false;
         Window.Title = "CRYPT";
     }
@@ -45,12 +45,15 @@ public sealed class CryptGame : Game
         _pixel = new Texture2D(GraphicsDevice, 1, 1);
         _pixel.SetData([Color.White]);
         _font = Content.Load<SpriteFont>("DefaultFont");
+        _font.DefaultCharacter = '?';
         _renderer = new GameRenderer(_spriteBatch, _pixel, _font);
     }
 
     protected override void Update(GameTime gameTime)
     {
         var commands = _input.Read(_session.State);
+
+        _session.AppendCipherText(_input.TypedCipherText);
 
         if (_input.QuitRequested)
         {
@@ -61,6 +64,11 @@ public sealed class CryptGame : Game
         foreach (var command in commands)
         {
             _session.Handle(command, gameTime.TotalGameTime);
+        }
+
+        if (_input.MinesweeperCell is { } mineCell)
+        {
+            _session.HandleMinesweeperClick(mineCell, _input.IsMinesweeperFlagClick, gameTime.TotalGameTime);
         }
 
         _session.Update(gameTime.TotalGameTime);

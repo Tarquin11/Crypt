@@ -11,6 +11,9 @@ public static class GameConstants
     public const int BoardTop = 126;
     public const int PixelSize = 4;
     public const int ForceRevealSafeTiles = 16;
+    public const int MinefieldBoardLeft = 250;
+    public const int MinefieldBoardTop = 184;
+    public const int MinefieldCellSize = 50;
 
     public static readonly TimeSpan MoveDuration = TimeSpan.FromMilliseconds(120);
     public static readonly TimeSpan CrackDuration = TimeSpan.FromSeconds(3);
@@ -19,6 +22,6 @@ public static class GameConstants
     public static readonly TimeSpan SwordHitEnd = TimeSpan.FromMilliseconds(140);
     public static readonly TimeSpan SwordSwingDuration = TimeSpan.FromMilliseconds(220);
     public static readonly TimeSpan SwordCooldown = SwordSwingDuration;
-    public static readonly TimeSpan DeathSequenceDuration = TimeSpan.FromMilliseconds(1_200);
+    public static readonly TimeSpan DeathSequenceDuration = TimeSpan.FromMilliseconds(1_600);
     public static readonly TimeSpan EnemyHitFlashDuration = TimeSpan.FromMilliseconds(90);
 }

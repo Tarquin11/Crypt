@@ -1,5 +1,6 @@
 using Crypt.Core.Engine;
 using Crypt.Core.Entities;
+using Crypt.Core.Puzzles;
 using Crypt.Core.Utility;
 using Crypt.Core.World;
 using Microsoft.Xna.Framework;
@@ -79,6 +80,21 @@ public sealed class GameRenderer
             DrawTile(session.Room, position, now);
         }
 
+        if (session.Room.AnswerSigilPuzzle is { } answerSigilPuzzle)
+        {
+            DrawAnswerSigils(answerSigilPuzzle);
+        }
+
+        if (session.Room.HasSpecialMovePaper && session.Room.SpecialMovePaper is { } paper)
+        {
+            DrawSpecialMovePaper(paper, now);
+        }
+
+        if (session.Room.HasLibraryBook && session.Room.LibraryBook is { } libraryBook)
+        {
+            DrawLibraryBook(libraryBook, now);
+        }
+
         DrawDoor(session.Room, session.Player);
 
         if (session.Room.IsKeyRevealed && !session.Player.HasKey && session.Room.RevealedKey is { } key)
@@ -87,18 +103,33 @@ public sealed class GameRenderer
         }
 
         DrawPlayer(session.Player, now);
-        DrawHeader(session.Player, session.Room);
+        DrawHeader(session, now);
 
         switch (session.State)
         {
+            case GameState.PaperReading:
+                DrawPaperReading(session);
+                break;
+            case GameState.LibraryReading:
+                DrawLibraryBookReading(session);
+                break;
+            case GameState.CipherPuzzle:
+                DrawCipherPuzzle(session);
+                break;
+            case GameState.Minesweeper:
+                DrawMinesweeperPuzzle(session);
+                break;
             case GameState.Dying:
-                DrawDyingOverlay(session.GetDeathProgress(now));
+                DrawDyingOverlay(session.GetDeathProgress(now), session.DeathReason, session.DeathKind, session.Player);
+                break;
+            case GameState.DeathRoast:
+                DrawDeathRoast(session);
                 break;
             case GameState.GameOver:
-                DrawGameOver(session.DeathReason);
+                DrawGameOver();
                 break;
             case GameState.Victory:
-                DrawVictory();
+                DrawVictory(session.CurrentLevel);
                 break;
         }
 
@@ -158,7 +189,7 @@ public sealed class GameRenderer
 
         if (tile.IsPressurePlate && tile.Type != TileType.Lava)
         {
-            DrawPressurePlate(x, y);
+            DrawRuneTablet(x, y, room.IsCipherActive, now);
         }
 
         if (position == room.Entrance)
@@ -234,11 +265,48 @@ public sealed class GameRenderer
         FillRectangle(x + 39 - (phase * 2), y + 39, 8, 4, LavaHot);
     }
 
-    private void DrawPressurePlate(int x, int y)
+    private void DrawRuneTablet(int x, int y, bool isActive, TimeSpan now)
     {
-        FillRectangle(x + 14, y + 23, 36, 20, PlateOutline);
-        FillRectangle(x + 18, y + 26, 28, 12, Plate);
-        FillRectangle(x + 22, y + 29, 20, 4, PlateLight);
+        var pulse = isActive && ((int)(now.TotalMilliseconds / 180d) % 2 == 0);
+        var runeGlow = pulse ? LavaHot : PlateLight;
+        var body = isActive ? new Color(0x82, 0x67, 0xC6) : Plate;
+
+        // A raised monolith, rather than a floor switch: it signals that this
+        // object is something to read and solve.
+        FillRectangle(x + 16, y + 12, 32, 44, PlateOutline);
+        FillRectangle(x + 19, y + 15, 26, 37, body);
+        FillRectangle(x + 22, y + 18, 20, 4, PlateLight);
+        FillRectangle(x + 12, y + 54, 40, 6, PlateOutline);
+        FillRectangle(x + 16, y + 51, 32, 5, FrameMid);
+
+        // Three simple rune marks: a player can spot this from across the room.
+        FillRectangle(x + 28, y + 25, 8, 4, runeGlow);
+        FillRectangle(x + 24, y + 29, 4, 8, runeGlow);
+        FillRectangle(x + 36, y + 29, 4, 8, runeGlow);
+        FillRectangle(x + 28, y + 37, 8, 4, runeGlow);
+        FillRectangle(x + 28, y + 42, 4, 4, runeGlow);
+        FillRectangle(x + 32, y + 46, 4, 4, runeGlow);
+    }
+
+    private void DrawAnswerSigils(AnswerSigilPuzzle puzzle)
+    {
+        for (var index = 0; index < puzzle.Positions.Count; index++)
+        {
+            var position = puzzle.Positions[index];
+            var x = TileX(position);
+            var y = TileY(position);
+            var label = puzzle.Challenge.Answers[index];
+            var labelScale = label.Length > 2 ? 0.65f : 0.82f;
+            var labelWidth = MeasureText(label, labelScale);
+
+            FillRectangle(x + 8, y + 8, 48, 48, PlateOutline);
+            FillRectangle(x + 12, y + 12, 40, 40, new Color(0x5D, 0x4A, 0x92));
+            FillRectangle(x + 16, y + 16, 32, 32, new Color(0xA5, 0x8B, 0xD1));
+            FillRectangle(x + 20, y + 20, 24, 24, new Color(0x31, 0x2A, 0x57));
+            FillRectangle(x + 12, y + 12, 40, 3, PlateLight);
+            FillRectangle(x + 12, y + 49, 40, 3, FrameShadow);
+            DrawText(label, new Vector2(x + ((GameConstants.TileSize - labelWidth) / 2f), y + 23), new Color(0xFF, 0xF4, 0xD2), labelScale);
+        }
     }
 
     private void DrawEntranceRune(int x, int y)
@@ -398,22 +466,175 @@ public sealed class GameRenderer
         }
     }
 
-    private void DrawHeader(Player player, Room room)
+    private void DrawHeader(DungeonSession session, TimeSpan now)
     {
+        var player = session.Player;
         DrawText("CRYPT", new Vector2(GameConstants.BoardLeft, 20), new Color(0xFF, 0x70, 0x43), 1.7f);
-        DrawText("LEVEL 1  -  The floor remembers every step", new Vector2(GameConstants.BoardLeft, 61), new Color(0xAE, 0xBD, 0xCA), 0.82f);
+        var subtitle = session.CurrentLevel switch
+        {
+            1 => "LEVEL 1  -  The floor remembers every step",
+            2 => "LEVEL 2  -  Cracked stone holds its shape",
+            3 => "LEVEL 3  -  Four sigils, one answer",
+            4 => "LEVEL 4  -  The Vigenere Library",
+            5 => "LEVEL 5  -  The Quiet Minefield",
+            _ => "CRYPT",
+        };
+        DrawText(subtitle, new Vector2(GameConstants.BoardLeft, 61), new Color(0xAE, 0xBD, 0xCA), 0.82f);
         FillRectangle(GameConstants.BoardLeft, 92, 932, 2, new Color(0x25, 0x31, 0x3E));
+
+        if (session.CurrentLevel == 3 && session.Room.AnswerSigilPuzzle is { } puzzle)
+        {
+            DrawText(puzzle.Challenge.Question.ToUpperInvariant(), new Vector2(GameConstants.BoardLeft, 101), LavaHot, 0.68f);
+
+            if (puzzle.Challenge.TimeLimit is { } timeLimit)
+            {
+                var remaining = session.GetAnswerSigilTimeRemaining(now);
+                var seconds = (int)Math.Ceiling(remaining.TotalSeconds);
+                var urgency = seconds <= 3 ? new Color(0xFF, 0x70, 0x43) : new Color(0xE2, 0xE8, 0xF0);
+                const int timerX = 535;
+                const int timerY = 61;
+                const int timerWidth = 164;
+                var fillWidth = (int)MathF.Round(timerWidth * (float)(remaining.TotalSeconds / timeLimit.TotalSeconds));
+
+                DrawText($"TIME: {seconds}", new Vector2(timerX, timerY), urgency, 0.78f);
+                FillRectangle(timerX, 84, timerWidth, 4, FrameDark);
+                FillRectangle(timerX, 84, Math.Clamp(fillWidth, 0, timerWidth), 4, urgency);
+            }
+        }
+
         DrawText("HP", new Vector2(730, 29), new Color(0xAE, 0xBD, 0xCA), 0.84f);
         DrawHearts(765, 30, player);
+        DrawText($"DEATHS {session.TotalDeaths} / {session.DeathsOnCurrentLevel}", new Vector2(730, 66), new Color(0xAE, 0xBD, 0xCA), 0.54f);
 
-        if (room.IsCipherActive && room.CipherPuzzle is not null)
+    }
+
+    private void DrawSpecialMovePaper(GridPosition position, TimeSpan now)
+    {
+        var x = TileX(position) + 17;
+        var y = TileY(position) + 23;
+        var shimmer = (int)(now.TotalMilliseconds / 240d) % 2 == 0;
+
+        FillRectangle(x + 3, y + 3, 31, 21, FrameShadow);
+        FillRectangle(x, y, 31, 21, new Color(0xD7, 0xC8, 0x9A));
+        FillRectangle(x + 3, y + 3, 25, 15, new Color(0xF3, 0xE9, 0xC7));
+        FillRectangle(x + 7, y + 7, 16, 2, new Color(0x6B, 0x63, 0x5A));
+        FillRectangle(x + 7, y + 11, 12, 2, new Color(0x6B, 0x63, 0x5A));
+        FillRectangle(x + 7, y + 15, 14, 2, shimmer ? LavaOrange : new Color(0x6B, 0x63, 0x5A));
+    }
+
+    private void DrawLibraryBook(GridPosition position, TimeSpan now)
+    {
+        var x = TileX(position) + 18;
+        var y = TileY(position) + 17;
+        var glint = (int)(now.TotalMilliseconds / 300d) % 2 == 0;
+        var cover = new Color(0x45, 0x2A, 0x59);
+        var coverLight = new Color(0x76, 0x4B, 0x88);
+        var page = new Color(0xE6, 0xD5, 0xA5);
+
+        FillRectangle(x + 3, y + 4, 28, 31, FrameShadow);
+        FillRectangle(x, y, 28, 31, cover);
+        FillRectangle(x + 4, y + 3, 20, 25, coverLight);
+        FillRectangle(x + 7, y + 6, 14, 19, page);
+        FillRectangle(x + 13, y + 6, 2, 19, new Color(0x9C, 0x7D, 0x69));
+        FillRectangle(x + 9, y + 10, 4, 2, new Color(0x5B, 0x4A, 0x42));
+        FillRectangle(x + 16, y + 10, 3, 2, new Color(0x5B, 0x4A, 0x42));
+        FillRectangle(x + 9, y + 15, 10, 2, new Color(0x5B, 0x4A, 0x42));
+        FillRectangle(x + 10, y + 29, 8, 2, glint ? LavaHot : DoorMetal);
+    }
+
+    private void DrawPaperReading(DungeonSession session)
+    {
+        var pattern = session.Room.SpecialMovePattern;
+        var start = session.Room.SpecialMoveStart;
+        if (pattern is null || !start.HasValue)
         {
-            DrawText(
-                $"RUNE LOCK {room.CipherProgress}/{room.CipherPuzzle.Route.Count}",
-                new Vector2(522, 61),
-                new Color(0xFF, 0xD1, 0x66),
-                0.76f);
+            return;
         }
+
+        FillRectangle(0, 0, GameConstants.CanvasWidth, GameConstants.CanvasHeight, new Color(4, 6, 12, 190));
+
+        const int x = 182;
+        const int y = 104;
+        const int width = 636;
+        const int height = 492;
+        var paper = new Color(0xE8, 0xD9, 0xAC);
+        var paperLight = new Color(0xF8, 0xEE, 0xC9);
+        var paperShade = new Color(0xB5, 0x95, 0x69);
+        var ink = new Color(0x2B, 0x27, 0x31);
+
+        FillRectangle(x + 8, y + 10, width, height, FrameShadow);
+        FillRectangle(x, y, width, height, paperShade);
+        FillRectangle(x + 6, y + 5, width - 12, height - 10, paper);
+        FillRectangle(x + 12, y + 11, width - 24, height - 22, paperLight);
+
+        // Parchment grain and worn edge details, built from pixel primitives so no external asset is required.
+        for (var grainY = y + 24; grainY < y + height - 24; grainY += 26)
+        {
+            for (var grainX = x + 24; grainX < x + width - 24; grainX += 38)
+            {
+                var grainWidth = ((grainX + grainY) / 8) % 3 == 0 ? 8 : 4;
+                FillRectangle(grainX, grainY, grainWidth, 2, new Color(0xD1, 0xBE, 0x90));
+            }
+        }
+
+        FillRectangle(x + 24, y + 30, width - 48, 3, paperShade);
+        FillRectangle(x + 24, y + height - 40, width - 48, 3, paperShade);
+        FillRectangle(x, y, 26, 26, paperShade);
+        FillRectangle(x + width - 26, y + height - 26, 26, 26, paperShade);
+
+        DrawText("FOLDED NOTE", new Vector2(x + 42, y + 54), ink, 1.25f);
+        DrawText("THE RUNES REMEMBER A PATH.", new Vector2(x + 42, y + 100), new Color(0x5B, 0x4A, 0x42), 0.74f);
+        FillRectangle(x + 42, y + 136, width - 84, 2, paperShade);
+
+        DrawText("BEGIN AT", new Vector2(x + 42, y + 166), new Color(0x5B, 0x4A, 0x42), 0.74f);
+        var startText = $"ROW {start.Value.Row + 1}    COLUMN {start.Value.Column + 1}";
+        DrawText(startText, new Vector2(x + 42, y + 197), ink, 1.15f);
+
+        DrawText("THEN WALK", new Vector2(x + 42, y + 264), new Color(0x5B, 0x4A, 0x42), 0.74f);
+        DrawWrappedText(pattern.InstructionText, x + 42, y + 296, width - 84, 34, ink, 0.82f);
+
+        DrawText("MEMORIZE THIS. THE PAPER WILL CRUMBLE.", new Vector2(x + 42, y + 405), new Color(0x5B, 0x4A, 0x42), 0.67f);
+        DrawText("PRESS ENTER OR Z", new Vector2(x + 203, y + 448), new Color(0x5B, 0x4A, 0x42), 0.75f);
+    }
+
+    private void DrawLibraryBookReading(DungeonSession session)
+    {
+        var puzzle = session.Room.CipherPuzzle as VigenereRunePuzzle;
+        if (puzzle is null)
+        {
+            return;
+        }
+
+        FillRectangle(0, 0, GameConstants.CanvasWidth, GameConstants.CanvasHeight, new Color(4, 6, 12, 190));
+
+        const int x = 182;
+        const int y = 104;
+        const int width = 636;
+        const int height = 492;
+        var paper = new Color(0xE8, 0xD9, 0xAC);
+        var paperLight = new Color(0xF8, 0xEE, 0xC9);
+        var paperShade = new Color(0xB5, 0x95, 0x69);
+        var ink = new Color(0x2B, 0x27, 0x31);
+
+        FillRectangle(x + 8, y + 10, width, height, FrameShadow);
+        FillRectangle(x, y, width, height, paperShade);
+        FillRectangle(x + 6, y + 5, width - 12, height - 10, paper);
+        FillRectangle(x + 12, y + 11, width - 24, height - 22, paperLight);
+        FillRectangle(x + 24, y + 30, width - 48, 3, paperShade);
+        FillRectangle(x + 24, y + height - 40, width - 48, 3, paperShade);
+
+        DrawText("THE VIGENERE LIBRARY", new Vector2(x + 42, y + 54), ink, 1.08f);
+        DrawText("A BOOKMARK HAS BEEN LEFT FOR YOU.", new Vector2(x + 42, y + 102), new Color(0x5B, 0x4A, 0x42), 0.72f);
+        FillRectangle(x + 42, y + 136, width - 84, 2, paperShade);
+
+        DrawText("KEYWORD", new Vector2(x + 42, y + 170), new Color(0x5B, 0x4A, 0x42), 0.74f);
+        DrawText(puzzle.Key, new Vector2(x + 42, y + 204), new Color(0x45, 0x2A, 0x59), 1.55f);
+        FillRectangle(x + 42, y + 264, width - 84, 2, paperShade);
+
+        DrawText("THE WORD REPEATS ACROSS EVERY LETTER.", new Vector2(x + 42, y + 302), ink, 0.73f);
+        DrawText("CARRY IT TO THE RUNE LECTERN.", new Vector2(x + 42, y + 336), new Color(0x5B, 0x4A, 0x42), 0.73f);
+        DrawText("MEMORIZE THIS. THE BOOK LOCKS WHEN CLOSED.", new Vector2(x + 42, y + 405), new Color(0x5B, 0x4A, 0x42), 0.64f);
+        DrawText("PRESS ENTER OR Z", new Vector2(x + 203, y + 448), new Color(0x5B, 0x4A, 0x42), 0.75f);
     }
 
     private void DrawHearts(int x, int y, Player player)
@@ -435,37 +656,237 @@ public sealed class GameRenderer
         FillRectangle(x + 12, y + 20, 4, 4, color);
     }
 
-    private void DrawVictory()
+    private void DrawVictory(int level)
     {
         FillRectangle(0, 0, GameConstants.CanvasWidth, GameConstants.CanvasHeight, new Color(5, 13, 20, 199));
         DrawText("ROOM CLEARED", new Vector2(334, 280), new Color(0x5E, 0xEA, 0xD4), 2.2f);
-        DrawText("The path held. Press R to play another room.", new Vector2(302, 332), new Color(0xE2, 0xE8, 0xF0), 1f);
+        var instruction = level < 5
+            ? $"Press P to pass to Level {level + 1}."
+            : "The path held. Press R to play this level again.";
+        DrawText(instruction, new Vector2((GameConstants.CanvasWidth - MeasureText(instruction, 1f)) / 2f, 332), new Color(0xE2, 0xE8, 0xF0), 1f);
     }
 
-    private void DrawDyingOverlay(float progress)
+    private void DrawCipherPuzzle(DungeonSession session)
     {
-        var opacity = Math.Clamp(0.15f + Math.Min(0.60f, progress * 0.60f), 0.15f, 0.75f);
-        FillRectangle(0, 0, GameConstants.CanvasWidth, GameConstants.CanvasHeight, new Color(0.35f, 0.02f, 0.03f, opacity));
-        DrawText("THE LAVA CLOSES IN...", new Vector2(312, 305), LavaHot, 1.35f);
+        var attempt = session.CipherAttempt;
+        var puzzle = session.Room.CipherPuzzle;
+        if (attempt is null || puzzle is null)
+        {
+            return;
+        }
+
+        FillRectangle(0, 0, GameConstants.CanvasWidth, GameConstants.CanvasHeight, new Color(5, 8, 16, 205));
+
+        const int x = 112;
+        const int y = 126;
+        const int width = 776;
+        const int height = 418;
+        FillRectangle(x + 6, y + 6, width, height, FrameShadow);
+        FillRectangle(x, y, width, height, FrameLight);
+        FillRectangle(x + 5, y + 5, width - 10, height - 10, new Color(0x1B, 0x1D, 0x31));
+        FillRectangle(x + 18, y + 18, width - 36, 58, new Color(0x2B, 0x2D, 0x46));
+        DrawText(puzzle.PanelTitle, new Vector2(x + 32, y + 31), LavaHot, 1.2f);
+        DrawText($"ATTEMPTS: {attempt.AttemptsRemaining}/3", new Vector2(x + 522, y + 35), new Color(0xE2, 0xE8, 0xF0), 0.78f);
+
+        DrawText("DECRYPT THE RUNES", new Vector2(x + 32, y + 105), new Color(0xAE, 0xBD, 0xCA), 0.78f);
+        DrawText(puzzle.DisplayedRuneText, new Vector2(x + 32, y + 137), new Color(0xFF, 0xD1, 0x66), 1.2f);
+
+        const int inputX = x + 32;
+        const int inputY = y + 206;
+        const int inputWidth = width - 64;
+        FillRectangle(inputX, inputY, inputWidth, 62, FrameMid);
+        FillRectangle(inputX + 4, inputY + 4, inputWidth - 8, 54, new Color(0x0E, 0x10, 0x1E));
+        var shownGuess = string.IsNullOrEmpty(attempt.Guess) ? "TYPE ANSWER..." : attempt.Guess;
+        var guessColor = string.IsNullOrEmpty(attempt.Guess) ? new Color(0x6F, 0x78, 0x93) : new Color(0xF8, 0xF0, 0xDA);
+        DrawText(shownGuess, new Vector2(inputX + 16, inputY + 14), guessColor, 1f);
+
+        DrawText(attempt.Feedback, new Vector2(x + 32, y + 294), new Color(0xAE, 0xBD, 0xCA), 0.78f);
+
+        // The input code uses this same rectangle, so the hint is genuinely clickable.
+        const int hintX = 932;
+        const int hintY = 18;
+        FillRectangle(hintX + 3, hintY + 3, 50, 50, FrameShadow);
+        FillRectangle(hintX, hintY, 50, 50, attempt.IsHintVisible ? LavaOrange : Plate);
+        DrawText("!", new Vector2(hintX + 18, hintY + 7), new Color(0xFF, 0xF4, 0xD2), 1.35f);
+
+        if (attempt.IsHintVisible)
+        {
+            FillRectangle(x + 32, y + 328, width - 64, 2, LavaOrange);
+            DrawText($"HINT: {puzzle.Hint}", new Vector2(x + 32, y + 348), LavaHot, 0.72f);
+            DrawText(puzzle.HintFooter, new Vector2(x + 32, y + 374), LavaHot, 0.72f);
+        }
+        else
+        {
+            DrawText("ENTER  SUBMIT     BACKSPACE  ERASE", new Vector2(x + 32, y + 348), new Color(0xE2, 0xE8, 0xF0), 0.76f);
+        }
     }
 
-    private void DrawGameOver(string reason)
+    private void DrawMinesweeperPuzzle(DungeonSession session)
+    {
+        var puzzle = session.MinesweeperPuzzle;
+        if (puzzle is null)
+        {
+            return;
+        }
+
+        FillRectangle(0, 0, GameConstants.CanvasWidth, GameConstants.CanvasHeight, new Color(5, 8, 16, 218));
+
+        const int panelX = 172;
+        const int panelY = 74;
+        const int panelWidth = 656;
+        const int panelHeight = 566;
+        FillRectangle(panelX + 6, panelY + 6, panelWidth, panelHeight, FrameShadow);
+        FillRectangle(panelX, panelY, panelWidth, panelHeight, FrameLight);
+        FillRectangle(panelX + 5, panelY + 5, panelWidth - 10, panelHeight - 10, new Color(0x1B, 0x1D, 0x31));
+        FillRectangle(panelX + 18, panelY + 18, panelWidth - 36, 58, new Color(0x2B, 0x2D, 0x46));
+
+        DrawText("MINEFIELD", new Vector2(panelX + 32, panelY + 30), LavaHot, 1.25f);
+        DrawText($"MINES: {puzzle.MineCount}     FLAGS: {puzzle.FlagsPlaced}", new Vector2(panelX + 330, panelY + 35), new Color(0xE2, 0xE8, 0xF0), 0.68f);
+        DrawText("LEFT CLICK  REVEAL      RIGHT CLICK  FLAG", new Vector2(panelX + 71, panelY + 94), new Color(0xAE, 0xBD, 0xCA), 0.68f);
+
+        for (var row = 0; row < puzzle.Rows; row++)
+        {
+            for (var column = 0; column < puzzle.Columns; column++)
+            {
+                var position = new GridPosition(row, column);
+                DrawMinefieldCell(position, puzzle.GetCell(position));
+            }
+        }
+
+        DrawText("THE FIRST REVEAL IS SAFE. CLEAR EVERY SAFE CELL.", new Vector2(panelX + 49, panelY + 530), new Color(0xAE, 0xBD, 0xCA), 0.62f);
+    }
+
+    private void DrawMinefieldCell(GridPosition position, MineCellView cell)
+    {
+        var x = GameConstants.MinefieldBoardLeft + (position.Column * GameConstants.MinefieldCellSize);
+        var y = GameConstants.MinefieldBoardTop + (position.Row * GameConstants.MinefieldCellSize);
+        const int size = GameConstants.MinefieldCellSize;
+
+        FillRectangle(x, y, size, size, FrameShadow);
+
+        if (!cell.IsRevealed)
+        {
+            FillRectangle(x + 2, y + 2, size - 4, size - 4, new Color(0x4B, 0x50, 0x73));
+            FillRectangle(x + 5, y + 5, size - 10, 4, new Color(0x7A, 0x83, 0xB5));
+            FillRectangle(x + 5, y + size - 9, size - 10, 4, new Color(0x2A, 0x2E, 0x48));
+
+            if (cell.IsFlagged)
+            {
+                DrawText("F", new Vector2(x + 17, y + 11), LavaHot, 1.2f);
+            }
+
+            return;
+        }
+
+        FillRectangle(x + 2, y + 2, size - 4, size - 4, new Color(0x2A, 0x2E, 0x48));
+        if (cell.IsMine)
+        {
+            FillRectangle(x + 14, y + 14, 22, 22, LavaRed);
+            FillRectangle(x + 20, y + 8, 10, 34, LavaHot);
+            FillRectangle(x + 8, y + 20, 34, 10, LavaHot);
+            return;
+        }
+
+        if (cell.AdjacentMines > 0)
+        {
+            var number = cell.AdjacentMines.ToString();
+            const float scale = 1.05f;
+            var numberWidth = MeasureText(number, scale);
+            DrawText(number, new Vector2(x + ((size - numberWidth) / 2f), y + 10), MineNumberColor(cell.AdjacentMines), scale);
+        }
+    }
+
+    private static Color MineNumberColor(int mines) => mines switch
+    {
+        1 => new Color(0x70, 0xCF, 0xFF),
+        2 => new Color(0x76, 0xD6, 0x87),
+        3 => new Color(0xFF, 0x8A, 0x6A),
+        _ => new Color(0xD4, 0x9B, 0xFF),
+    };
+
+    private void DrawDyingOverlay(float progress, string reason, DeathKind deathKind, Player player)
+    {
+        if (deathKind == DeathKind.Sinkhole)
+        {
+            DrawSinkholeDeath(progress, reason, player);
+            return;
+        }
+
+        var easedProgress = MathHelper.SmoothStep(0f, 1f, progress);
+        var darkness = Math.Clamp(0.18f + (easedProgress * 0.42f), 0.18f, 0.60f);
+        var lavaTop = GameConstants.CanvasHeight - (int)MathF.Round(easedProgress * GameConstants.CanvasHeight);
+
+        FillRectangle(0, 0, GameConstants.CanvasWidth, GameConstants.CanvasHeight, new Color(0.08f, 0.01f, 0.03f, darkness));
+        FillRectangle(0, lavaTop, GameConstants.CanvasWidth, GameConstants.CanvasHeight - lavaTop, LavaDark);
+
+        for (var x = -16; x < GameConstants.CanvasWidth; x += 44)
+        {
+            var wave = ((x / 44) % 2 == 0 ? 8 : 0) + (int)(progress * 12f);
+            FillRectangle(x, lavaTop - wave, 32, 8, LavaOrange);
+            FillRectangle(x + 8, lavaTop - wave - 4, 12, 4, LavaHot);
+        }
+
+        var message = string.IsNullOrWhiteSpace(reason) ? "THE LAVA CLOSES IN" : reason.ToUpperInvariant();
+        var messageY = 260f - (easedProgress * 90f);
+        DrawText(message, new Vector2((GameConstants.CanvasWidth - MeasureText(message, 1.35f)) / 2f, messageY), LavaHot, 1.35f);
+    }
+
+    private void DrawSinkholeDeath(float progress, string reason, Player player)
+    {
+        var easedProgress = MathHelper.SmoothStep(0f, 1f, progress);
+        var centerX = TileX(player.Position) + (GameConstants.TileSize / 2);
+        var centerY = TileY(player.Position) + (GameConstants.TileSize / 2);
+        var radius = 12 + (int)MathF.Round(easedProgress * 82f);
+
+        FillRectangle(0, 0, GameConstants.CanvasWidth, GameConstants.CanvasHeight, new Color(0.02f, 0.01f, 0.05f, 0.42f));
+        FillRectangle(centerX - radius - 4, centerY - radius - 4, (radius * 2) + 8, (radius * 2) + 8, new Color(0x4B, 0x19, 0x20));
+        FillRectangle(centerX - radius, centerY - radius, radius * 2, radius * 2, new Color(0x12, 0x0A, 0x1E));
+        FillRectangle(centerX - radius + 10, centerY - radius + 10, Math.Max(0, (radius * 2) - 20), Math.Max(0, (radius * 2) - 20), Color.Black);
+
+        var message = string.IsNullOrWhiteSpace(reason) ? "THE GROUND GIVES WAY" : reason.ToUpperInvariant();
+        DrawText(message, new Vector2((GameConstants.CanvasWidth - MeasureText(message, 1.2f)) / 2f, 88), new Color(0xE2, 0xE8, 0xF0), 1.2f);
+    }
+
+    private void DrawGameOver()
     {
         FillRectangle(0, 0, GameConstants.CanvasWidth, GameConstants.CanvasHeight, new Color(5, 5, 15, 209));
 
-        const int x = 282;
-        const int y = 210;
-        const int width = 436;
-        const int height = 276;
+        const int x = 332;
+        const int y = 226;
+        const int width = 336;
+        const int height = 218;
         FillRectangle(x + 5, y + 5, width, height, new Color(0x07, 0x08, 0x12));
-        FillRectangle(x, y, width, height, new Color(0xF6, 0xE4, 0xBD));
-        FillRectangle(x + 5, y + 5, width - 10, height - 10, new Color(0x2B, 0x2D, 0x46));
-        FillRectangle(x + 10, y + 10, width - 20, height - 20, new Color(0xF8, 0xF0, 0xDA));
-        DrawText("YOU DIED", new Vector2(x + 119, y + 44), new Color(0xB5, 0x3D, 0x4B), 1.85f);
-        DrawText(reason, new Vector2(x + 38, y + 110), new Color(0x24, 0x24, 0x3A), 0.78f);
-        FillRectangle(x + 34, y + 156, width - 68, 2, new Color(0x6B, 0x63, 0x8D));
-        DrawText("Z / ENTER  TRY AGAIN", new Vector2(x + 96, y + 188), new Color(0x24, 0x24, 0x3A), 0.82f);
-        DrawText("R          RESTART ROOM", new Vector2(x + 80, y + 222), new Color(0x24, 0x24, 0x3A), 0.82f);
+        FillRectangle(x, y, width, height, FrameLight);
+        FillRectangle(x + 5, y + 5, width - 10, height - 10, new Color(0x1B, 0x1D, 0x31));
+        DrawText("GAME OVER", new Vector2(x + 57, y + 45), new Color(0xFF, 0x70, 0x43), 1.6f);
+
+        const int buttonX = x + 46;
+        const int buttonY = y + 132;
+        const int buttonWidth = 244;
+        const int buttonHeight = 46;
+        FillRectangle(buttonX + 3, buttonY + 3, buttonWidth, buttonHeight, FrameShadow);
+        FillRectangle(buttonX, buttonY, buttonWidth, buttonHeight, new Color(0x6E, 0x5A, 0xA8));
+        FillRectangle(buttonX + 4, buttonY + 4, buttonWidth - 8, buttonHeight - 8, new Color(0xB8, 0xA8, 0xF0));
+        DrawText("ENTER / Z  RETRY", new Vector2(buttonX + 36, buttonY + 11), new Color(0x20, 0x22, 0x38), 0.84f);
+    }
+
+    private void DrawDeathRoast(DungeonSession session)
+    {
+        FillRectangle(0, 0, GameConstants.CanvasWidth, GameConstants.CanvasHeight, new Color(8, 5, 18, 224));
+
+        const int x = 152;
+        const int y = 198;
+        const int width = 696;
+        const int height = 294;
+        FillRectangle(x + 6, y + 6, width, height, FrameShadow);
+        FillRectangle(x, y, width, height, new Color(0xB8, 0xA8, 0xF0));
+        FillRectangle(x + 5, y + 5, width - 10, height - 10, new Color(0x1B, 0x1D, 0x31));
+        FillRectangle(x + 18, y + 18, width - 36, 48, new Color(0x4B, 0x19, 0x20));
+
+        DrawText("THE DUNGEON HAS A NOTE", new Vector2(x + 42, y + 29), LavaHot, 1.05f);
+        DrawWrappedText(DungeonSession.ThirdDeathRoast.ToUpperInvariant(), x + 48, y + 103, width - 96, 34, new Color(0xF8, 0xF0, 0xDA), 0.95f);
+        DrawText($"TOTAL DEATHS: {session.TotalDeaths}     THIS STAGE: {session.DeathsOnCurrentLevel}", new Vector2(x + 86, y + 222), new Color(0xAE, 0xBD, 0xCA), 0.65f);
+        DrawText("PRESS ENTER OR Z", new Vector2(x + 226, y + 254), new Color(0xB8, 0xA8, 0xF0), 0.75f);
     }
 
     private void DrawDialogue(DialogueState dialogue)
