@@ -2,7 +2,7 @@ namespace Crypt.Core.Utility;
 
 public static class GameConstants
 {
-    public const int RoomColumns = 10;
+    public const int RoomColumns = 14;
     public const int RoomRows = 8;
     public const int TileSize = 64;
     public const int CanvasWidth = 1_000;
@@ -14,6 +14,14 @@ public static class GameConstants
     public const int MinefieldBoardLeft = 250;
     public const int MinefieldBoardTop = 184;
     public const int MinefieldCellSize = 50;
+    public const int MinefieldColumns = 10;
+    public const int MinefieldRows = 8;
+    public const int MenuButtonLeft = 350;
+    public const int MenuButtonWidth = 300;
+    public const int MenuButtonHeight = 48;
+    public const int MenuPlayTop = 350;
+    public const int MenuLanguageTop = 416;
+    public const int MenuDifficultyTop = 482;
 
     public static readonly TimeSpan MoveDuration = TimeSpan.FromMilliseconds(120);
     public static readonly TimeSpan CrackDuration = TimeSpan.FromSeconds(3);

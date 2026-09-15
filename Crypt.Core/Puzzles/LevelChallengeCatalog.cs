@@ -1,3 +1,5 @@
+using Crypt.Core.Utility;
+
 namespace Crypt.Core.Puzzles;
 
 /// <summary>Reusable challenge data for levels introduced after the first rune cipher.</summary>
@@ -37,8 +39,10 @@ public static class LevelChallengeCatalog
     public static bool TryGet(int level, out LevelChallenge? challenge) =>
         Challenges.TryGetValue(level, out challenge);
 
-    public static MultipleChoiceChallenge CreateLevelThreeMathChallenge(Random random) =>
-        MathChallengeGenerator.Create(random);
+    public static MultipleChoiceChallenge CreateLevelThreeMathChallenge(
+        Random random,
+        GameDifficulty difficulty = GameDifficulty.Difficult) =>
+        MathChallengeGenerator.Create(random, difficulty);
 }
 
 public abstract record LevelChallenge(int Level);

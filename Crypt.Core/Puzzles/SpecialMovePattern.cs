@@ -1,4 +1,5 @@
 using Crypt.Core.Entities;
+using Crypt.Core.Utility;
 
 namespace Crypt.Core.Puzzles;
 
@@ -37,5 +38,20 @@ public static class SpecialMovePatternCatalog
     {
         ArgumentNullException.ThrowIfNull(random);
         return Patterns[random.Next(Patterns.Count)];
+    }
+
+    public static SpecialMovePattern Pick(Random random, GameDifficulty difficulty)
+    {
+        ArgumentNullException.ThrowIfNull(random);
+
+        var pool = difficulty switch
+        {
+            GameDifficulty.Noob => Patterns.Take(3).ToArray(),
+            GameDifficulty.Difficult => Patterns,
+            GameDifficulty.Extreme => Patterns,
+            _ => Patterns,
+        };
+
+        return pool[random.Next(pool.Count)];
     }
 }

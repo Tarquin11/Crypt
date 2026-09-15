@@ -23,15 +23,28 @@ public sealed class DungeonSession
     private MinesweeperPuzzle? _minesweeperPuzzle;
     private bool _showDeathRoast;
 
-    public DungeonSession(RoomGenerator? roomGenerator = null, int initialLevel = 1)
+    public DungeonSession(
+        RoomGenerator? roomGenerator = null,
+        int initialLevel = 1,
+        bool startAtMenu = true)
     {
-        if (initialLevel < 1 || initialLevel > 5)
+        if (initialLevel < 1 || initialLevel > 6)
         {
-            throw new ArgumentOutOfRangeException(nameof(initialLevel), "The initial level must be available.");
+            throw new ArgumentOutOfRangeException(
+                nameof(initialLevel),
+                "The initial level must be available.");
         }
 
         _roomGenerator = roomGenerator ?? new RoomGenerator();
-        StartLevel(initialLevel, TimeSpan.Zero);
+
+        if (startAtMenu)
+        {
+            State = GameState.Title;
+        }
+        else
+        {
+            StartLevel(initialLevel, TimeSpan.Zero);
+        }
     }
 
     public Room Room { get; private set; } = null!;
@@ -48,10 +61,11 @@ public sealed class DungeonSession
 
     public int CurrentLevel { get; private set; }
 
+    public GameDifficulty Difficulty { get; private set; } = GameDifficulty.Difficult;
+
     /// <summary>Deaths accumulated during this game session, across every level.</summary>
     public int TotalDeaths { get; private set; }
 
-    /// <summary>Deaths accumulated on the current level, including retries.</summary>
     public int DeathsOnCurrentLevel { get; private set; }
 
     public DeathKind DeathKind { get; private set; } = DeathKind.Lava;
@@ -64,13 +78,16 @@ public sealed class DungeonSession
 
     public TimeSpan GetAnswerSigilTimeRemaining(TimeSpan now)
     {
-        var timeLimit = Room?.AnswerSigilPuzzle?.Challenge.TimeLimit;
-        if (!timeLimit.HasValue || !_answerSigilStartedAt.HasValue)
+        var puzzle = Room?.AnswerSigilPuzzle;
+        var timeLimit = puzzle?.Challenge.TimeLimit;
+
+        if (State != GameState.Playing || puzzle is null || puzzle.IsComplete || !timeLimit.HasValue || !_answerSigilStartedAt.HasValue)
         {
             return TimeSpan.Zero;
         }
 
-        return TimeSpan.FromTicks(Math.Max(0, (timeLimit.Value - (now - _answerSigilStartedAt.Value)).Ticks));
+        var remaining = timeLimit.Value - (now - _answerSigilStartedAt.Value);
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 
     public float GetDeathProgress(TimeSpan now) =>
@@ -82,7 +99,7 @@ public sealed class DungeonSession
     {
         _now = now;
 
-        if (State == GameState.Dialogue)
+        if (State is GameState.Dialogue or GameState.IntroStory)
         {
             Dialogue.Update(now);
         }
@@ -133,6 +150,37 @@ public sealed class DungeonSession
     {
         _now = now;
 
+        if (State == GameState.Title)
+        {
+            switch (command)
+            {
+                case GameCommand.StartGame:
+                    BeginIntroStory();
+                    break;
+
+                case GameCommand.CycleDifficulty:
+                    CycleDifficulty();
+                    break;
+            }
+
+            return;
+        }
+
+        if (State == GameState.IntroStory)
+        {
+            if (command == GameCommand.Confirm)
+            {
+                Dialogue.Advance();
+
+                if (!Dialogue.IsVisible)
+                {
+                    StartLevel(1, now);
+                }
+            }
+
+            return;
+        }
+
         if (command == GameCommand.Restart && !_cheatDeathPending && State != GameState.DeathRoast)
         {
             StartLevel(CurrentLevel, now);
@@ -161,7 +209,7 @@ public sealed class DungeonSession
 
         if (State == GameState.Victory)
         {
-            if (command == GameCommand.NextLevel && CurrentLevel is 1 or 2 or 3 or 4)
+            if (command == GameCommand.NextLevel && CurrentLevel is 1 or 2 or 3 or 4 or 5)
             {
                 StartLevel(CurrentLevel + 1, now);
             }
@@ -373,7 +421,7 @@ public sealed class DungeonSession
 
         if (worldMessage is not null)
         {
-            if (CurrentLevel == 2 && Room.IsSpecialMovePaperCollected && !_hasReadSpecialMovePaper)
+            if (CurrentLevel is 2 or 6 && Room.IsSpecialMovePaperCollected && !_hasReadSpecialMovePaper)
             {
                 _hasReadSpecialMovePaper = true;
                 ShowSpecialMovePaper();
@@ -451,6 +499,8 @@ public sealed class DungeonSession
         switch (puzzle.Choose(Player.Position))
         {
             case AnswerSigilResult.Correct:
+                _answerSigilStartedAt = null;
+
                 var message = Room.RevealKeyFromSpecialMove(Player);
                 Message = message;
                 ShowDialogue("SIGILS", message);
@@ -483,7 +533,7 @@ public sealed class DungeonSession
 
     private string? RegisterLevelTwoMove(Facing direction)
     {
-        if (CurrentLevel != 2 || _moveSequencePuzzle is null)
+        if (CurrentLevel is not (2 or 6) || _moveSequencePuzzle is null)
         {
             return null;
         }
@@ -502,7 +552,10 @@ public sealed class DungeonSession
 
         return result switch
         {
-            MoveSequenceResult.Solved => Room.RevealKeyFromSpecialMove(Player),
+            MoveSequenceResult.Solved when CurrentLevel == 6 =>
+                $"The echoes fall silent. {Room.RevealKeyFromSpecialMove(Player)}",
+            MoveSequenceResult.Solved =>
+                Room.RevealKeyFromSpecialMove(Player),
             MoveSequenceResult.Reset => "The pattern slips away.",
             _ => null,
         };
@@ -537,6 +590,9 @@ public sealed class DungeonSession
         {
             DeathsOnCurrentLevel = 0;
         }
+
+        _roomGenerator.Difficulty = Difficulty;
+
         Room = level switch
         {
             1 => _roomGenerator.GenerateLevelOne(),
@@ -544,6 +600,7 @@ public sealed class DungeonSession
             3 => _roomGenerator.GenerateLevelThree(),
             4 => _roomGenerator.GenerateLevelFour(),
             5 => _roomGenerator.GenerateLevelFive(),
+            6 => _roomGenerator.GenerateLevelSix(),
             _ => throw new ArgumentOutOfRangeException(nameof(level), level, "This level is not available yet."),
         };
         Player = new Player(Room.Entrance);
@@ -555,7 +612,9 @@ public sealed class DungeonSession
         _cheatDeathPending = false;
         _cheatTrapTriggered = false;
         _answerSigilStartedAt = null;
-        _minesweeperPuzzle = level == 5 ? new MinesweeperPuzzle() : null;
+        _minesweeperPuzzle = level == 5
+            ? new MinesweeperPuzzle(Difficulty)
+            : null;
         _showDeathRoast = false;
         Message = level switch
         {
@@ -564,6 +623,7 @@ public sealed class DungeonSession
             3 => "Choose the one sigil that answers the trial.",
             4 => "Find the book that unlocks the Vigenere lectern.",
             5 => "Clear the minefield to reveal the key.",
+            6 => "Memorize the true path. The echoes are lying :) .",
             _ => string.Empty,
         };
         DeathReason = string.Empty;
@@ -607,7 +667,17 @@ public sealed class DungeonSession
                 "A silent field seals the final gate.",
                 "Reveal every safe cell to uncover the key.",
                 "Left click reveals. Right click places a flag.",
-                "The first reveal is always safe. Only eight mines are hidden.");
+                "The first reveal is always safe. Only 8 mines are hidden.(Maybe More i forgot)");
+            return;
+        }
+
+        if (level == 6)
+        {
+            ShowDialogue(
+                "ECHO ROOM ",
+                "The room repeats movements it never taught you.",
+                "Unless you have short attention span, memorize the true path to the exit.",
+                "The decoys will try to trick you. i had enough of saying Good luck. ");
             return;
         }
 
@@ -633,9 +703,41 @@ public sealed class DungeonSession
         _cheatDeathPending = true;
         ShowDialogue(
             "DUNGEON",
-            "You completed those moves suspiciously fast.",
-            "You thought the room would not notice you photographing its secrets.",
-            "The floor opens beneath you.");
+            "( ͡° ͜ʖ ͡°)",
+            "Ha ! , you thought you could get away with photographing the paper cheater ?.",
+            "The earth loves to swallow cheaters!");
+    }
+
+    private void BeginIntroStory()
+    {
+        TotalDeaths = 0;
+        DeathsOnCurrentLevel = 0;
+        CurrentLevel = 0;
+        DeathReason = string.Empty;
+        Message = string.Empty;
+
+        Dialogue.ShowPages(
+            new DialoguePage("YOU", "Where am I?"),
+            new DialoguePage("YOU", "This place... it feels alive."),
+            new DialoguePage("DUNGEON", "You are awake at last."),
+            new DialoguePage("YOU", "Who said that? Show yourself!"),
+            new DialoguePage("DUNGEON", "Don't worry. I am a friendly, Sometimes...."),
+            new DialoguePage("DUNGEON", "Pass through my trials, and I will grant you freedom."),
+            new DialoguePage("DUNGEON", "Fail, and you will belong to the Crypt forever."),
+            new DialoguePage("DUNGEON", "Every breath you take, And every move you make."),
+            new DialoguePage("DUNGEON", "Every bond you break, Every step you take,'ll be watching you"));
+
+        State = GameState.IntroStory;
+    }
+
+    private void CycleDifficulty()
+    {
+        Difficulty = Difficulty switch
+        {
+            GameDifficulty.Noob => GameDifficulty.Difficult,
+            GameDifficulty.Difficult => GameDifficulty.Extreme,
+            _ => GameDifficulty.Noob,
+        };
     }
 
     private void ShowDialogue(string speaker, params string[] pages)

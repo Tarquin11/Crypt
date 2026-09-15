@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Crypt.Core.Utility;
 
 namespace Crypt.Core.Puzzles;
 
@@ -8,32 +9,44 @@ namespace Crypt.Core.Puzzles;
 /// </summary>
 public sealed class CaesarRunePuzzle : ITextCipherPuzzle
 {
-    private static readonly string[] PhraseBank =
+    private static readonly string[] NoobPhraseBank =
+    [
+        "FIND THE KEY",
+        "OPEN THE DOOR",
+        "GO NORTH",
+        "GO EAST",
+        "THE KEY IS HERE",
+    ];
+
+    private static readonly string[] DifficultPhraseBank =
     [
         "HASTA EL FINAL VAMOS REAL",
-        "HALA MADRID",
         "THE GOAT WALKS AMONG US",
-        "RONALDO NEVER MISSES",
-        "SIUUUUUUU",
         "THE SNOW SPEAKS FINNISH",
         "THE DUNGEON HAS NO WIFI",
         "THE TREES SPEAK VIETNAMESE",
-        "THERE IS NO SPOON",
         "PRESS F TO PAY RESPECTS",
         "THE CAKE IS A LIE",
-        "YOUR LIFE DOSENT HAVE A PAUSE BUTTON",
+        "THIS WAS A BAD IDEA",
+    ];
+
+    private static readonly string[] ExtremePhraseBank =
+    [
         "THE PRINCESS IS IN ANOTHER CASTLE",
-        "YOU SHOULD HAVE BROUGHT A MAP",
-        "THIS WAS A BAD IDEA"
+        "KAZAKHSTAN NUMBER ONE EXPORTER OF POTASSIUM",
+        "YOUR LIFE DOSENT HAVE A PAUSE BUTTON",
+        "THE EXIT IS NEVER WHAT IT SEEMS",
     ];
 
     public CaesarRunePuzzle(string decodedText, int shift)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(decodedText);
 
-        if (shift is < 1 or > 50)
+        if (shift is < 1 or > 25)
         {
-            throw new ArgumentOutOfRangeException(nameof(shift), "A Caesar shift must be from 1 through 50.");
+            throw new ArgumentOutOfRangeException(
+                nameof(shift),
+                "A Caesar shift must be from 1 through 25.");
         }
 
         DecodedText = NormalizePlainText(decodedText);
@@ -55,10 +68,25 @@ public sealed class CaesarRunePuzzle : ITextCipherPuzzle
 
     public string HintFooter => "THE NUMBER AFTER THE RUNES IS IMPORTANT.";
 
-    public static CaesarRunePuzzle CreateRandom(Random random)
+    public static CaesarRunePuzzle CreateRandom(Random random) =>
+        CreateRandom(random, GameDifficulty.Difficult);
+
+    public static CaesarRunePuzzle CreateRandom(
+        Random random,
+        GameDifficulty difficulty)
     {
         ArgumentNullException.ThrowIfNull(random);
-        return new CaesarRunePuzzle(PhraseBank[random.Next(PhraseBank.Length)], random.Next(1, 51));
+
+        var (phrases, minShift, maxShiftExclusive) = difficulty switch
+        {
+            GameDifficulty.Noob => (NoobPhraseBank, 1, 6),
+            GameDifficulty.Extreme => (ExtremePhraseBank, 13, 26),
+            _ => (DifficultPhraseBank, 1, 26),
+        };
+
+        return new CaesarRunePuzzle(
+            phrases[random.Next(phrases.Length)],
+            random.Next(minShift, maxShiftExclusive));
     }
 
     public static string Encode(string value, int shift)

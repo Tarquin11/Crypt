@@ -10,7 +10,10 @@ public enum GameCommand
     Confirm,
     Restart,
     NextLevel,
+    StartGame,
+    CycleDifficulty,
     CipherBackspace,
     CipherSubmit,
     CipherHint,
+    
 }

@@ -51,7 +51,7 @@ public sealed class CryptGame : Game
 
     protected override void Update(GameTime gameTime)
     {
-        var commands = _input.Read(_session.State);
+        var commands = _input.Read(_session.State, gameTime.TotalGameTime);
 
         _session.AppendCipherText(_input.TypedCipherText);
 
@@ -85,7 +85,7 @@ public sealed class CryptGame : Game
             // The world is drawn from crisp integer-aligned primitives. Text, however,
             // comes from an anti-aliased font atlas and needs linear sampling to remain
             // readable at the UI's fractional display scales.
-            SamplerState.LinearClamp,
+            SamplerState.PointClamp,
             DepthStencilState.None,
             RasterizerState.CullNone);
         _renderer.Draw(_session, gameTime.TotalGameTime);
@@ -93,4 +93,5 @@ public sealed class CryptGame : Game
 
         base.Draw(gameTime);
     }
+    
 }

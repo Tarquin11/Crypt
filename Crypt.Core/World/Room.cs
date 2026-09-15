@@ -31,7 +31,8 @@ public sealed class Room
         GridPosition? specialMovePaper = null,
         bool triggersSequenceCheatTrap = false,
         AnswerSigilPuzzle? answerSigilPuzzle = null,
-        GridPosition? libraryBook = null)
+        GridPosition? libraryBook = null,
+        IReadOnlyList<EchoDecoySymbol>? echoDecoys = null)
     {
         Entrance = entrance;
         Door = door;
@@ -47,6 +48,7 @@ public sealed class Room
         AnswerSigilPuzzle = answerSigilPuzzle;
         LibraryBook = libraryBook;
         HasLibraryBook = libraryBook.HasValue;
+        EchoDecoys = echoDecoys ?? Array.Empty<EchoDecoySymbol>();
 
         if (SpecialMovePattern is not null && (!SpecialMoveStart.HasValue || !SpecialMovePaper.HasValue))
         {
@@ -112,6 +114,10 @@ public sealed class Room
     public bool HasLibraryBook { get; private set; }
 
     public bool IsLibraryBookCollected => LibraryBook.HasValue && !HasLibraryBook;
+
+    public IReadOnlyList<EchoDecoySymbol> EchoDecoys { get; }
+
+    public bool IsEchoRoom => EchoDecoys.Count > 0;
 
     public bool IsCipherActive { get; private set; }
 

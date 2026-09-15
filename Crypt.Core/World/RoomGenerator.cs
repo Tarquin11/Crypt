@@ -13,6 +13,7 @@ public sealed class RoomGenerator
         : this(new Random())
     {
     }
+    public GameDifficulty Difficulty { get; set; } = GameDifficulty.Difficult;
 
     public RoomGenerator(Random random)
     {
@@ -36,7 +37,7 @@ public sealed class RoomGenerator
             .ToArray();
         var pressurePlate = plateCandidates[_random.Next(plateCandidates.Length)];
 
-        return new Room(entrance, door, hiddenKey, pressurePlate, CaesarRunePuzzle.CreateRandom(_random));
+        return new Room(entrance, door, hiddenKey, pressurePlate, CaesarRunePuzzle.CreateRandom(_random, Difficulty));
     }
 
     public Room GenerateLevelTwo()
@@ -45,7 +46,7 @@ public sealed class RoomGenerator
         var door = new GridPosition(2, GameConstants.RoomColumns - 1);
         var candidates = KeyCandidates(entrance, door).ToArray();
         var hiddenKey = candidates[_random.Next(candidates.Length)];
-        var pattern = SpecialMovePatternCatalog.Pick(_random);
+        var pattern = SpecialMovePatternCatalog.Pick(_random, Difficulty);
         var startCandidates = Positions()
             .Where(position => position != entrance && position != door && CanPerformPatternFrom(position, pattern, door))
             .ToArray();
@@ -108,7 +109,7 @@ public sealed class RoomGenerator
             door,
             hiddenKey,
             pressurePlate: lectern,
-            cipherPuzzle: VigenereRunePuzzle.CreateRandom(_random),
+            cipherPuzzle: VigenereRunePuzzle.CreateRandom(_random, Difficulty),
             lavaEnabled: false,
             allowsExplorationKeyReveal: false,
             libraryBook: libraryBook);
@@ -128,6 +129,66 @@ public sealed class RoomGenerator
             pressurePlate: null,
             lavaEnabled: false,
             allowsExplorationKeyReveal: false);
+    }
+
+    public Room GenerateLevelSix()
+    {
+        var entrance = new GridPosition(5, 0);
+        var door = new GridPosition(2, GameConstants.RoomColumns - 1);
+        var candidates = KeyCandidates(entrance, door).ToArray();
+        var hiddenKey = candidates[_random.Next(candidates.Length)];
+        var pattern = EchoRoomPatternCatalog.Pick(_random, Difficulty);
+        var startCandidates = Positions()
+            .Where(position =>
+                position != entrance &&
+                position != door &&
+                position != hiddenKey &&
+                CanPerformPatternFrom(position, pattern, door))
+            .ToArray();
+        var start = startCandidates[_random.Next(startCandidates.Length)];
+        var paperCandidates = Positions()
+            .Where(position =>
+                position != entrance &&
+                position != door &&
+                position != hiddenKey &&
+                position != start)
+            .ToArray();
+        var paper = paperCandidates[_random.Next(paperCandidates.Length)];
+
+        var decoyCandidates = Positions()
+            .Where(position =>
+                position != entrance &&
+                position != door &&
+                position != hiddenKey &&
+                position != start &&
+                position != paper)
+            .ToList();
+        Shuffle(decoyCandidates);
+
+        var decoyCount = Difficulty switch
+        {
+            GameDifficulty.Noob => 3,
+            GameDifficulty.Difficult => 7,
+            GameDifficulty.Extreme => 10,
+            _ => 7,
+        };
+
+        var decoys = decoyCandidates
+            .Take(decoyCount)
+            .Select((position, index) => new EchoDecoySymbol(position, index % 3 + 1))
+            .ToList();
+
+        return new Room(
+            entrance,
+            door,
+            hiddenKey,
+            pressurePlate: null,
+            lavaEnabled: false,
+            allowsExplorationKeyReveal: false,
+            specialMovePattern: pattern,
+            specialMoveStart: start,
+            specialMovePaper: paper,
+            echoDecoys: decoys);
     }
 
     private bool DrawLevelTwoTrapOutcome()

@@ -9,7 +9,10 @@ public sealed class DeathCounterTests
     [Fact]
     public void Third_death_on_one_stage_shows_the_secret_roast_and_tracks_totals()
     {
-        var session = new DungeonSession(new RoomGenerator(new Random(42)), initialLevel: 5);
+        var session = new DungeonSession(
+            new RoomGenerator(new Random(42)),
+            initialLevel: 5,
+            startAtMenu: false);
         var now = TimeSpan.Zero;
 
         for (var death = 1; death <= 3; death++)

@@ -15,9 +15,28 @@ public sealed class MinesweeperPuzzle
     private int _safeCellsRemaining;
 
     public MinesweeperPuzzle(Random? random = null)
-        : this(GameConstants.RoomRows, GameConstants.RoomColumns, 8, random)
+        : this(GameConstants.MinefieldRows, GameConstants.MinefieldColumns, 8, random)
     {
     }
+
+    public MinesweeperPuzzle(
+        GameDifficulty difficulty,
+        Random? random = null)
+        : this(
+            GameConstants.MinefieldRows,
+            GameConstants.MinefieldColumns,
+            MineCountFor(difficulty),
+            random)
+    {
+    }
+
+    public static int MineCountFor(GameDifficulty difficulty) =>
+        difficulty switch
+        {
+            GameDifficulty.Noob => 5,
+            GameDifficulty.Extreme => 12,
+            _ => 8,
+        };
 
     public MinesweeperPuzzle(int rows, int columns, int mineCount, Random? random = null)
     {

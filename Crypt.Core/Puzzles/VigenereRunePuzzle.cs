@@ -1,9 +1,18 @@
+using Crypt.Core.Utility;
+
 namespace Crypt.Core.Puzzles;
 
 /// <summary>A Vigenere challenge whose repeating keyword is discovered in the level.</summary>
 public sealed class VigenereRunePuzzle : ITextCipherPuzzle
 {
-    private static readonly (string Phrase, string Key)[] PuzzleBank =
+    private static readonly (string Phrase, string Key)[] NoobPuzzleBank =
+    [
+        ("FIND THE KEY", "MOON"),
+        ("OPEN THE VAULT", "TOME"),
+        ("THE BOOK IS HERE", "RUNE"),
+    ];
+
+    private static readonly (string Phrase, string Key)[] DifficultPuzzleBank =
     [
         ("FIND THE SILENT KEY", "RAVEN"),
         ("THE BOOK KNOWS YOUR NAME", "CANDLE"),
@@ -11,6 +20,13 @@ public sealed class VigenereRunePuzzle : ITextCipherPuzzle
         ("READ BETWEEN THE SHELVES", "TOME"),
         ("THE LIBRARY KEEPS SECRETS", "IVORY"),
         ("WHISPERS GUARD THE STACKS", "QUILL"),
+    ];
+
+    private static readonly (string Phrase, string Key)[] ExtremePuzzleBank =
+    [
+        ("THE LIBRARY FORGETS NOTHING", "OBSIDIAN"),
+        ("THE ARCHIVE KNOWS YOUR FEAR", "NIGHTFALL"),
+        ("SILENCE HIDES THE FINAL KEY", "CIPHER"),
     ];
 
     public VigenereRunePuzzle(string decodedText, string key)
@@ -37,10 +53,24 @@ public sealed class VigenereRunePuzzle : ITextCipherPuzzle
 
     public string HintFooter => "USE THE KEYWORD AGAIN AND AGAIN.";
 
-    public static VigenereRunePuzzle CreateRandom(Random random)
+    public static VigenereRunePuzzle CreateRandom(Random random) =>
+        CreateRandom(random, GameDifficulty.Difficult);
+
+    public static VigenereRunePuzzle CreateRandom(
+        Random random,
+        GameDifficulty difficulty)
     {
         ArgumentNullException.ThrowIfNull(random);
-        var (phrase, key) = PuzzleBank[random.Next(PuzzleBank.Length)];
+
+        var puzzleBank = difficulty switch
+        {
+            GameDifficulty.Noob => NoobPuzzleBank,
+            GameDifficulty.Extreme => ExtremePuzzleBank,
+            _ => DifficultPuzzleBank,
+        };
+
+        var (phrase, key) = puzzleBank[random.Next(puzzleBank.Length)];
+
         return new VigenereRunePuzzle(phrase, key);
     }
 

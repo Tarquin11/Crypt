@@ -14,6 +14,15 @@ public sealed class CommandInput
 
     private KeyboardState _previous;
     private KeyboardState _current;
+    private Keys? _heldMovementKey;
+    private TimeSpan _nextMovementRepeatAt;
+
+    private static readonly TimeSpan MovementRepeatDelay =
+        TimeSpan.FromMilliseconds(260);
+
+    private static readonly TimeSpan MovementRepeatInterval =
+        TimeSpan.FromMilliseconds(70);
+
     private MouseState _previousMouse;
     private MouseState _currentMouse;
 
@@ -25,7 +34,7 @@ public sealed class CommandInput
 
     public bool IsMinesweeperFlagClick { get; private set; }
 
-    public IReadOnlyList<GameCommand> Read(GameState state)
+    public IReadOnlyList<GameCommand> Read(GameState state, TimeSpan now)
     {
         _current = Keyboard.GetState();
         _currentMouse = Mouse.GetState();
@@ -35,14 +44,32 @@ public sealed class CommandInput
         MinesweeperCell = null;
         IsMinesweeperFlagClick = false;
 
-        // R restarts normal gameplay, but is a required letter in cipher answers
-        // such as NORTH and must not restart the room while the panel is open.
-        if (state != GameState.CipherPuzzle && WasPressed(Keys.R))
+        // R restarts only active gameplay, not menus or dialogue.
+        if ((state is GameState.Playing or GameState.Minesweeper) && WasPressed(Keys.R))
         {
             commands.Add(GameCommand.Restart);
         }
 
-        if (state is GameState.Dialogue or GameState.PaperReading or GameState.LibraryReading or GameState.DeathRoast or GameState.GameOver)
+        if (state == GameState.Title)
+        {
+            if (WasPressed(Keys.Enter) ||
+                WasPressed(Keys.Space) ||
+                WasMenuPlayClicked())
+            {
+                commands.Add(GameCommand.StartGame);
+            }
+
+            if (WasPressed(Keys.D) || WasMenuDifficultyClicked())
+            {
+                commands.Add(GameCommand.CycleDifficulty);
+            }
+        }
+        else if (state is GameState.Dialogue or
+             GameState.IntroStory or
+             GameState.PaperReading or
+             GameState.LibraryReading or
+             GameState.DeathRoast or
+             GameState.GameOver)
         {
             if (WasPressed(Keys.Enter) || WasPressed(Keys.Z))
             {
@@ -82,24 +109,9 @@ public sealed class CommandInput
         }
         else if (state == GameState.Playing)
         {
-            if (WasPressed(Keys.W) || WasPressed(Keys.Up) || WasPressed(Keys.Z))
+            if (TryReadHeldMovement(now, out var movement))
             {
-                commands.Add(GameCommand.MoveUp);
-            }
-
-            if (WasPressed(Keys.S) || WasPressed(Keys.Down))
-            {
-                commands.Add(GameCommand.MoveDown);
-            }
-
-            if (WasPressed(Keys.A) || WasPressed(Keys.Q) || WasPressed(Keys.Left))
-            {
-                commands.Add(GameCommand.MoveLeft);
-            }
-
-            if (WasPressed(Keys.D) || WasPressed(Keys.Right))
-            {
-                commands.Add(GameCommand.MoveRight);
+                commands.Add(movement);
             }
 
             if (WasPressed(Keys.Space))
@@ -114,6 +126,63 @@ public sealed class CommandInput
     }
 
     private bool WasPressed(Keys key) => _current.IsKeyDown(key) && _previous.IsKeyUp(key);
+
+    private bool TryReadHeldMovement(TimeSpan now, out GameCommand command)
+    {
+        var heldMovement = GetHeldMovement();
+
+        if (!heldMovement.HasValue)
+        {
+            _heldMovementKey = null;
+            command = default;
+            return false;
+        }
+
+        var (key, movementCommand) = heldMovement.Value;
+
+        if (_heldMovementKey != key)
+        {
+            _heldMovementKey = key;
+            _nextMovementRepeatAt = now + MovementRepeatDelay;
+            command = movementCommand;
+            return true;
+        }
+
+        if (now < _nextMovementRepeatAt)
+        {
+            command = default;
+            return false;
+        }
+
+        _nextMovementRepeatAt = now + MovementRepeatInterval;
+        command = movementCommand;
+        return true;
+    }
+
+    private (Keys Key, GameCommand Command)? GetHeldMovement()
+    {
+        if (_current.IsKeyDown(Keys.W) || _current.IsKeyDown(Keys.Up) || _current.IsKeyDown(Keys.Z))
+        {
+            return (Keys.W, GameCommand.MoveUp);
+        }
+
+        if (_current.IsKeyDown(Keys.S) || _current.IsKeyDown(Keys.Down))
+        {
+            return (Keys.S, GameCommand.MoveDown);
+        }
+
+        if (_current.IsKeyDown(Keys.A) || _current.IsKeyDown(Keys.Q) || _current.IsKeyDown(Keys.Left))
+        {
+            return (Keys.A, GameCommand.MoveLeft);
+        }
+
+        if (_current.IsKeyDown(Keys.D) || _current.IsKeyDown(Keys.Right))
+        {
+            return (Keys.D, GameCommand.MoveRight);
+        }
+
+        return null;
+    }
 
     private string ReadTypedText()
     {
@@ -145,6 +214,28 @@ public sealed class CommandInput
         _currentMouse.Y >= HintButtonTop &&
         _currentMouse.Y < HintButtonTop + HintButtonSize;
 
+    private bool WasMenuPlayClicked() =>
+        WasLeftClickInside(
+            GameConstants.MenuButtonLeft,
+            GameConstants.MenuPlayTop,
+            GameConstants.MenuButtonWidth,
+            GameConstants.MenuButtonHeight);
+
+    private bool WasMenuDifficultyClicked() =>
+        WasLeftClickInside(
+            GameConstants.MenuButtonLeft,
+            GameConstants.MenuDifficultyTop,
+            GameConstants.MenuButtonWidth,
+            GameConstants.MenuButtonHeight);
+
+    private bool WasLeftClickInside(int x, int y, int width, int height) =>
+        _currentMouse.LeftButton == ButtonState.Pressed &&
+        _previousMouse.LeftButton == ButtonState.Released &&
+        _currentMouse.X >= x &&
+        _currentMouse.X < x + width &&
+        _currentMouse.Y >= y &&
+        _currentMouse.Y < y + height;
+
     private bool TryReadMinesweeperClick(out GridPosition cell, out bool isFlagClick)
     {
         cell = default;
@@ -160,8 +251,8 @@ public sealed class CommandInput
         var relativeX = _currentMouse.X - GameConstants.MinefieldBoardLeft;
         var relativeY = _currentMouse.Y - GameConstants.MinefieldBoardTop;
         if (relativeX < 0 || relativeY < 0 ||
-            relativeX >= GameConstants.RoomColumns * GameConstants.MinefieldCellSize ||
-            relativeY >= GameConstants.RoomRows * GameConstants.MinefieldCellSize)
+            relativeX >= GameConstants.MinefieldColumns * GameConstants.MinefieldCellSize ||
+            relativeY >= GameConstants.MinefieldRows * GameConstants.MinefieldCellSize)
         {
             return false;
         }
